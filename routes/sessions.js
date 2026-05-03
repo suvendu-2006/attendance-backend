@@ -5,12 +5,45 @@ const supabase = require('../supabase');
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
 
+// Cache the demo teacher's real UUID after first creation
+let demoTeacherId = null;
+
 // Middleware to check if user is a teacher
 // In production, extract token from Authorization header and verify JWT.
-const requireTeacher = (req, res, next) => {
-  // Mock verification for DIY dev:
-  req.teacher = { id: 'teacher-uuid-placeholder' };
-  next();
+const requireTeacher = async (req, res, next) => {
+  try {
+    if (demoTeacherId) {
+      req.teacher = { id: demoTeacherId };
+      return next();
+    }
+
+    // Check if demo teacher already exists
+    const { data: existing } = await supabase
+      .from('teachers')
+      .select('id')
+      .eq('phone_number', 'demo-teacher')
+      .single();
+
+    if (existing) {
+      demoTeacherId = existing.id;
+      req.teacher = { id: demoTeacherId };
+      return next();
+    }
+
+    // Create demo teacher on first use
+    const { data: newTeacher, error } = await supabase
+      .from('teachers')
+      .insert({ name: 'Demo Teacher', phone_number: 'demo-teacher', password_hash: 'demo' })
+      .select()
+      .single();
+
+    if (error) throw error;
+    demoTeacherId = newTeacher.id;
+    req.teacher = { id: demoTeacherId };
+    next();
+  } catch (err) {
+    res.status(500).json({ error: 'Teacher auth failed: ' + err.message });
+  }
 };
 
 // 1. Start Attendance Session
